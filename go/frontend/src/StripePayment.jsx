@@ -7,10 +7,8 @@ import "./StripePayment.css";
 
 // Make sure to call loadStripe outside of a component’s render to avoid
 // recreating the Stripe object on every render.
-// This is your test publishable API key.
-const stripePromise = loadStripe(
-  "pk_test_51ShrDs8OwOdSOfxgLZT37FPURchyyJ80GBAwbZHwQvy0GpqIIUUsFLIoBORPaFDlnwG6620JsxEoOY3aqObIqj4200jre7o3P9"
-);
+// Loads the Stripe publishable key from environment variable
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY);
 
 export default function StripePayment({ customerData }) {
   const [clientSecret, setClientSecret] = useState("");
