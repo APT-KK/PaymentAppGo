@@ -2,57 +2,115 @@ package main
 
 // to export something it should start with a capital letter
 import (
-	"encoding/json"
-	// "fmt"
-	"log"
-	"net/http"
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "io"
+    "log"
+    "net/http"
+    "os"
+    "github.com/stripe/stripe-go/v81"
+    "github.com/stripe/stripe-go/v81/paymentintent"
+    "github.com/joho/godotenv"
 )
 
 func main() {
-	http.HandleFunc("/create-payment-intent", handleCreatePaymentIntent)
+    // Load .env file if present
+    _ = godotenv.Load()
 
-	http.HandleFunc("/", handleHealth)
-	var err error = http.ListenAndServe("localhost:8080", nil)
-	if(err != nil){
-		log.Fatal("Error starting server:", err)
-	}
+    stripeSecret := os.Getenv("STRIPE_SECRET_KEY")
+    if stripeSecret == "" {
+        log.Fatal("STRIPE_SECRET_KEY not set in environment or .env file")
+    }
+    stripe.Key = stripeSecret
+
+    http.HandleFunc("/create-payment-intent", handleCreatePaymentIntent)
+    http.HandleFunc("/health", handleHealth)
+
+    log.Println("Listening on localhost:4242...")
+    err := http.ListenAndServe("localhost:4242", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
 }
 
-func handleCreatePaymentIntent(w http.ResponseWriter, r *http.Request) {
+func handleCreatePaymentIntent(writer http.ResponseWriter, request *http.Request) {
+    if request.Method != "POST" {
+        http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+        return
+    }
 
-   if r.Method != "POST" {
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return
-   }
+    var req struct {
+        ProductId string `json:"product_id"`
+        FirstName string `json:"first_name"`
+        LastName  string `json:"last_name"`
+        Address1  string `json:"address_1"`
+        Address2  string `json:"address_2"`
+        City      string `json:"city"`
+        State     string `json:"state"`
+        Zip       string `json:"zip"`
+        Country   string `json:"country"`
+    }
 
-   var req struct {
-		ProductId string `json:"product_id"`
-		FirstName string `json:"first_name"`
-		LastName  string `json:"last_name"`
-		Address1  string `json:"address_1"`
-		Address2  string `json:"address_2"`
-		City      string `json:"city"`
-		State     string `json:"state"`
-		Zip       string `json:"zip"`
-		Country   string `json:"country"`
-	}
+    err := json.NewDecoder(request.Body).Decode(&req) // store request body in req variable
+    if err != nil {
+        http.Error(writer, err.Error(), http.StatusInternalServerError)
+        return
+    }
 
-	err := json.NewDecoder(r.Body).Decode(&req) // store request body in req variable
-	if(err != nil){
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+    params := &stripe.PaymentIntentParams{
+        Amount:   stripe.Int64(calculateOrderAmount(req.ProductId)),
+        Currency: stripe.String(string(stripe.CurrencyUSD)),
+        AutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
+            Enabled: stripe.Bool(true),
+        },
+    }
 
-	// params := &stripe.PaymentIntentParams{
-		
-	// }
+    paymentIntent, err := paymentintent.New(params)
+    if err != nil {
+        http.Error(writer, err.Error(), http.StatusInternalServerError)
+        return
+    }
 
+    var response struct {
+        ClientSecret string `json:"clientSecret"`
+    }
+
+    response.ClientSecret = paymentIntent.ClientSecret
+
+    var buf bytes.Buffer
+    err = json.NewEncoder(&buf).Encode(response)
+    if err != nil {
+        http.Error(writer, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    writer.Header().Set("Content-Type", "application/json")
+
+    _, err = io.Copy(writer, &buf)
+    if err != nil {
+        fmt.Println(err)
+    }
 }
 
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	response := []byte("Server is healthy")
-	_, err := w.Write(response) // := sets type automatically
-	if err != nil {
-		log.Println("Error writing response:", err)
-	}
+func handleHealth(writer http.ResponseWriter, request *http.Request) {
+    response := []byte("Server is up and running!")
+    _, err := writer.Write(response)
+    if err != nil {
+        fmt.Println(err)
+    }
+}
+
+// only used 3 products for learning purpose 
+// will connect to database later
+func calculateOrderAmount(productId string) int64 {
+    switch productId {
+    case "Forever Pants":
+        return 26000
+    case "Forever Shirt":
+        return 15500
+    case "Forever Shorts":
+        return 30000
+    }
+    return 0
 }
